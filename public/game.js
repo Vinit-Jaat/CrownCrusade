@@ -1,5 +1,10 @@
 const socket = io();
 
+window.isDev = false;
+socket.on("init_data", (data) => {
+  window.isDev = data.isDev;
+});
+
 const CARD_DATA = {
   Knight: {
     cost: 3,
@@ -98,27 +103,315 @@ const CARD_DATA = {
     size: 34,
     type: "aoe",
   },
+  Bomber: {
+    cost: 3,
+    hp: 150,
+    dmg: 40,
+    spd: 50,
+    range: 70,
+    aggro: 180,
+    atkSpd: 1.4,
+    color: 0x444444,
+    size: 24,
+    type: "aoe",
+  },
+  HogRider: {
+    cost: 4,
+    hp: 600,
+    dmg: 80,
+    spd: 90,
+    range: 10,
+    aggro: 0,
+    atkSpd: 1.3,
+    color: 0x8b4513,
+    size: 30,
+    type: "melee",
+    targetsTowersOnly: true,
+  },
+  SkeletonArmy: {
+    cost: 3,
+    isSwarm: true,
+    swarmCount: 6,
+    spawnRadius: 35,
+    spawnTroop: "Skeleton",
+    color: 0xaaaaaa,
+  },
 };
+
+window.playerDeck = [
+  "Knight",
+  "Archer",
+  "Giant",
+  "SkeletonArmy",
+  "MiniPekka",
+  "Skeleton",
+  "Musket",
+  "Valkyrie",
+];
+
+class HomeScene extends Phaser.Scene {
+  constructor() {
+    super("HomeScene");
+  }
+  create() {
+    this.cameras.main.setBackgroundColor("#1e1e1e");
+
+    this.add
+      .text(225, 300, "CLASH BROS", {
+        fontSize: "36px",
+        fill: "#ffcc00",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(225, 350, "<— Swipe Left for Deck", {
+        fontSize: "16px",
+        fill: "#888888",
+      })
+      .setOrigin(0.5);
+
+    const playBtn = this.add
+      .rectangle(225, 550, 240, 70, 0x3296ff, 1)
+      .setInteractive();
+    this.add
+      .text(225, 550, "BATTLE", {
+        fontSize: "28px",
+        fill: "#fff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+
+    playBtn.on("pointerdown", () => this.scene.start("ModeSelectScene"));
+
+    this.input.on("pointerup", (pointer) => {
+      if (pointer.downX - pointer.upX > 50) this.scene.start("DeckScene");
+    });
+  }
+}
+
+class ModeSelectScene extends Phaser.Scene {
+  constructor() {
+    super("ModeSelectScene");
+  }
+  create() {
+    this.cameras.main.setBackgroundColor("#1e1e1e");
+    this.add
+      .text(225, 200, "Select Mode", {
+        fontSize: "28px",
+        fill: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+
+    const randomBtn = this.add
+      .rectangle(225, 350, 280, 60, 0x2e8b57, 1)
+      .setInteractive();
+    this.add
+      .text(225, 350, "Random Match", { fontSize: "20px", fill: "#fff" })
+      .setOrigin(0.5);
+    randomBtn.on("pointerdown", () =>
+      this.scene.start("WaitingScene", { mode: "random" }),
+    );
+
+    const hostBtn = this.add
+      .rectangle(225, 450, 280, 60, 0x8b4513, 1)
+      .setInteractive();
+    this.add
+      .text(225, 450, "Host with Code", { fontSize: "20px", fill: "#fff" })
+      .setOrigin(0.5);
+    hostBtn.on("pointerdown", () =>
+      this.scene.start("WaitingScene", { mode: "host" }),
+    );
+
+    const joinBtn = this.add
+      .rectangle(225, 550, 280, 60, 0x6464fa, 1)
+      .setInteractive();
+    this.add
+      .text(225, 550, "Join with Code", { fontSize: "20px", fill: "#fff" })
+      .setOrigin(0.5);
+    joinBtn.on("pointerdown", () =>
+      this.scene.start("WaitingScene", { mode: "join" }),
+    );
+
+    const backBtn = this.add
+      .text(225, 700, "[ BACK ]", { fontSize: "20px", fill: "#ff5555" })
+      .setOrigin(0.5)
+      .setInteractive();
+    backBtn.on("pointerdown", () => this.scene.start("HomeScene"));
+  }
+}
+
+class DeckScene extends Phaser.Scene {
+  constructor() {
+    super("DeckScene");
+  }
+  create() {
+    this.cameras.main.setBackgroundColor("#111111");
+    this.add
+      .text(225, 50, "YOUR DECK", {
+        fontSize: "24px",
+        fill: "#ffcc00",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(225, 80, "Swipe Right for Home —>", {
+        fontSize: "16px",
+        fill: "#888888",
+      })
+      .setOrigin(0.5);
+    this.helperText = this.add
+      .text(225, 410, "1. Tap a card above\n2. Tap a card below to swap", {
+        fontSize: "14px",
+        fill: "#aaaaaa",
+        align: "center",
+      })
+      .setOrigin(0.5);
+
+    this.selectedSlotIndex = null;
+    this.deckGroup = this.add.group();
+    this.collectionGroup = this.add.group();
+
+    this.refreshUI();
+
+    this.input.on("pointerup", (pointer) => {
+      if (pointer.upX - pointer.downX > 50) this.scene.start("HomeScene");
+    });
+  }
+
+  refreshUI() {
+    this.deckGroup.clear(true, true);
+    this.collectionGroup.clear(true, true);
+
+    for (let i = 0; i < 8; i++) {
+      const cardName = window.playerDeck[i];
+      const x = 60 + (i % 4) * 110;
+      const y = 160 + Math.floor(i / 4) * 110;
+
+      const isSelected = this.selectedSlotIndex === i;
+      const container = this.add.container(x, y);
+      const bg = this.add.rectangle(
+        0,
+        0,
+        80,
+        90,
+        isSelected ? 0xffcc00 : CARD_DATA[cardName].color,
+      );
+      const txt = this.add
+        .text(0, 0, `${cardName}\n(${CARD_DATA[cardName].cost})`, {
+          fontSize: "14px",
+          fill: "#000",
+          align: "center",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      container.add([bg, txt]);
+      container.setSize(80, 90);
+      container.setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(-40, -45, 80, 90),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      });
+
+      container.on("pointerdown", () => {
+        this.selectedSlotIndex = i;
+        this.refreshUI();
+      });
+      this.deckGroup.add(container);
+    }
+
+    const allCards = Object.keys(CARD_DATA);
+    for (let i = 0; i < allCards.length; i++) {
+      const cardName = allCards[i];
+      const x = 60 + (i % 4) * 110;
+      const y = 500 + Math.floor(i / 4) * 110;
+
+      const inDeck = window.playerDeck.includes(cardName);
+      const container = this.add.container(x, y);
+      const visualColor = CARD_DATA[cardName].color || 0xdddddd;
+
+      const bg = this.add.rectangle(0, 0, 80, 90, visualColor);
+      const txt = this.add
+        .text(0, 0, `${cardName}\n(${CARD_DATA[cardName].cost})`, {
+          fontSize: "14px",
+          fill: "#000",
+          align: "center",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      container.add([bg, txt]);
+      container.setSize(80, 90);
+
+      if (inDeck) {
+        container.setAlpha(0.3);
+      } else {
+        container.setInteractive({
+          hitArea: new Phaser.Geom.Rectangle(-40, -45, 80, 90),
+          hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        });
+        container.on("pointerdown", () => {
+          if (this.selectedSlotIndex !== null) {
+            window.playerDeck[this.selectedSlotIndex] = cardName;
+            this.selectedSlotIndex = null;
+            this.refreshUI();
+          }
+        });
+      }
+      this.collectionGroup.add(container);
+    }
+  }
+}
 
 class WaitingScene extends Phaser.Scene {
   constructor() {
     super("WaitingScene");
   }
+  init(data) {
+    this.mode = data.mode || "random";
+  }
   create() {
     this.cameras.main.setBackgroundColor("#1e1e1e");
-    const statusText = this.add
-      .text(225, 475, "Connecting to server...", {
+    this.statusText = this.add
+      .text(225, 400, "Connecting to server...", {
         fontSize: "24px",
         fill: "#ffffff",
+        align: "center",
       })
       .setOrigin(0.5);
 
-    socket.on("waiting", () => statusText.setText("Waiting for opponent..."));
+    const cancelBtn = this.add
+      .text(225, 700, "[ CANCEL ]", { fontSize: "20px", fill: "#ff5555" })
+      .setOrigin(0.5)
+      .setInteractive();
+    cancelBtn.on("pointerdown", () => {
+      socket.disconnect();
+      socket.connect();
+      this.scene.start("HomeScene");
+    });
+
+    socket.on("waiting", () =>
+      this.statusText.setText("Searching for opponent..."),
+    );
+    socket.on("room_created", (code) =>
+      this.statusText.setText(
+        `Room Created!\n\nShare Code:\n[ ${code} ]\n\nWaiting for friend...`,
+      ),
+    );
+    socket.on("error_msg", (msg) => {
+      alert(msg);
+      this.scene.start("ModeSelectScene");
+    });
     socket.on("match_start", () => {
-      statusText.setText("Match Found! Starting...");
+      this.statusText.setText("Match Found! Starting...");
       this.time.delayedCall(300, () => this.scene.start("GameScene"));
     });
-    socket.emit("join_game");
+
+    if (this.mode === "random") socket.emit("join_random");
+    else if (this.mode === "host") socket.emit("create_friend_room");
+    else if (this.mode === "join") {
+      const code = prompt("Enter 5-Digit Room Code:");
+      if (code && code.length === 5) socket.emit("join_friend_room", code);
+      else this.scene.start("ModeSelectScene");
+    }
   }
 }
 
@@ -128,7 +421,6 @@ class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // --- 1. PERFECT TILE GRID (18x32 tiles, 25x25px each) ---
     const cols = 18;
     const rows = 32;
     const tw = 25;
@@ -142,13 +434,9 @@ class GameScene extends Phaser.Scene {
         let isBridge =
           isRiver && ((col >= 2 && col <= 4) || (col >= 13 && col <= 15));
 
-        if (isBridge) {
-          color = (row + col) % 2 === 0 ? 0x8b4513 : 0xa0522d;
-        } else if (isRiver) {
-          color = (row + col) % 2 === 0 ? 0x3296ff : 0x1e90ff;
-        } else {
-          color = (row + col) % 2 === 0 ? 0x2e8b57 : 0x3cb371;
-        }
+        if (isBridge) color = (row + col) % 2 === 0 ? 0x8b4513 : 0xa0522d;
+        else if (isRiver) color = (row + col) % 2 === 0 ? 0x3296ff : 0x1e90ff;
+        else color = (row + col) % 2 === 0 ? 0x2e8b57 : 0x3cb371;
 
         this.add.rectangle(col * tw, row * th, tw, th, color).setOrigin(0, 0);
       }
@@ -158,7 +446,6 @@ class GameScene extends Phaser.Scene {
       { x: 87.5, y: RIVER_Y },
       { x: 362.5, y: RIVER_Y },
     ];
-
     this.waterBlocks = [
       { rx: 0, ry: 375, rw: 50, rh: 50 },
       { rx: 125, ry: 375, rw: 200, rh: 50 },
@@ -169,7 +456,8 @@ class GameScene extends Phaser.Scene {
     this.towers = this.add.group();
     this.projectiles = this.add.group();
 
-    // --- 2. TOWER SPAWNING ---
+    this.debugGraphics = this.add.graphics().setDepth(200);
+
     this.spawnTower(225, 700, true, false, 4 * tw, 4 * th);
     this.spawnTower(87.5, 612.5, false, false, 3 * tw, 3 * th);
     this.spawnTower(362.5, 612.5, false, false, 3 * tw, 3 * th);
@@ -178,22 +466,12 @@ class GameScene extends Phaser.Scene {
     this.spawnTower(362.5, 187.5, false, true, 3 * tw, 3 * th);
 
     const HUD_Y = 800;
-
     this.add
       .rectangle(0, HUD_Y, 450, 150, 0x111111)
       .setOrigin(0, 0)
       .setDepth(9);
 
-    let playerDeck = [
-      "Knight",
-      "Archer",
-      "Giant",
-      "Goblin",
-      "MiniPekka",
-      "Skeleton",
-      "Musket",
-      "Valkyrie",
-    ].sort(() => Math.random() - 0.5);
+    let playerDeck = [...window.playerDeck].sort(() => Math.random() - 0.5);
     this.hand = playerDeck.slice(0, 4);
     this.drawQueue = playerDeck.slice(4, 8);
 
@@ -205,6 +483,7 @@ class GameScene extends Phaser.Scene {
     ];
 
     this.selectedCard = null;
+    this.isDragging = false;
 
     for (let i = 0; i < 4; i++) this.createCardUI(this.hand[i], i);
 
@@ -217,7 +496,6 @@ class GameScene extends Phaser.Scene {
       .rectangle(25, HUD_Y + 120, 400, 16, 0xff33cc)
       .setOrigin(0, 0)
       .setDepth(10);
-
     this.elixirText = this.add
       .text(225, HUD_Y + 128, "Elixir: 5/10", {
         fontSize: "14px",
@@ -245,12 +523,27 @@ class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(10);
 
-    // --- 4. TAP-TO-SELECT AND TAP-TO-PLACE (MOBILE FRIENDLY) ---
+    const leaveBtn = this.add
+      .rectangle(400, 20, 70, 30, 0xff0000, 0.7)
+      .setDepth(9)
+      .setInteractive();
+    this.add
+      .text(400, 20, "LEAVE", {
+        fontSize: "14px",
+        fill: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(10);
+    leaveBtn.on("pointerdown", () => {
+      socket.emit("leave_match");
+      this.scene.start("ResultScene", { msg: "YOU LEFT THE MATCH" });
+    });
+
     this.input.on("pointerdown", (pointer, gameObjects) => {
-      // Ignore clicks on UI elements (cards)
       if (gameObjects.length > 0) return;
 
-      if (pointer.y < HUD_Y && this.selectedCard) {
+      if (pointer.y < HUD_Y && this.selectedCard && !this.isDragging) {
         const dropX = pointer.x;
         const dropY = pointer.y;
         const cost = this.selectedCard.getData("cost");
@@ -276,8 +569,7 @@ class GameScene extends Phaser.Scene {
           this.selectedCard = null;
           this.createCardUI(nextCard, slotIndex);
         } else {
-          // Deselect safely on invalid placement
-          if (this.selectedCard && this.selectedCard.active) {
+          if (this.selectedCard.active) {
             this.selectedCard.y = this.selectedCard.getData("homeY");
             this.selectedCard.setDepth(10);
           }
@@ -304,7 +596,9 @@ class GameScene extends Phaser.Scene {
     const stats = CARD_DATA[troopName];
     const pos = this.SLOTS[slotIndex];
     const container = this.add.container(pos.x, pos.y);
-    const bg = this.add.rectangle(0, 0, 70, 90, stats.color);
+
+    const bgCol = stats.color || 0xdddddd;
+    const bg = this.add.rectangle(0, 0, 70, 90, bgCol);
     const txt = this.add
       .text(0, 0, `${troopName}\n(${stats.cost})`, {
         fontSize: "14px",
@@ -316,10 +610,11 @@ class GameScene extends Phaser.Scene {
 
     container.add([bg, txt]);
     container.setSize(70, 90);
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(-35, -45, 70, 90),
-      Phaser.Geom.Rectangle.Contains,
-    );
+    container.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-35, -45, 70, 90),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      draggable: true,
+    });
 
     container.setData({
       name: troopName,
@@ -330,25 +625,66 @@ class GameScene extends Phaser.Scene {
     });
     container.setDepth(10);
 
-    // Flawless Select/Deselect Toggle
-    container.on("pointerdown", () => {
+    container.on("pointerup", (pointer) => {
+      if (!this.isDragging) {
+        if (this.selectedCard === container) {
+          container.y = container.getData("homeY");
+          this.selectedCard = null;
+        } else {
+          if (this.selectedCard && this.selectedCard.active) {
+            this.selectedCard.y = this.selectedCard.getData("homeY");
+          }
+          this.selectedCard = container;
+          container.y = pos.y - 20;
+        }
+      }
+    });
+
+    this.input.on("dragstart", (pointer, gameObject) => {
+      this.isDragging = true;
       if (
         this.selectedCard &&
-        this.selectedCard !== container &&
+        this.selectedCard !== gameObject &&
         this.selectedCard.active
       ) {
         this.selectedCard.y = this.selectedCard.getData("homeY");
         this.selectedCard.setDepth(10);
       }
+      this.selectedCard = gameObject;
+      gameObject.setDepth(100);
+    });
 
-      if (this.selectedCard === container) {
-        container.y = container.getData("homeY");
-        container.setDepth(10);
+    this.input.on("drag", (pointer, gameObject, dragX, dragY) => {
+      gameObject.x = dragX;
+      gameObject.y = dragY;
+    });
+
+    this.input.on("dragend", (pointer, gameObject) => {
+      this.isDragging = false;
+      const dropX = gameObject.x;
+      const dropY = gameObject.y;
+      const cost = gameObject.getData("cost");
+
+      if (dropY < 800 && dropY > 425 && this.currentElixir >= cost) {
+        this.currentElixir -= cost;
+        this.spawnTroop(dropX, dropY, gameObject.getData("name"), false);
+        socket.emit("play_card", {
+          troopName: gameObject.getData("name"),
+          x: dropX,
+          y: dropY,
+        });
+
+        const sIdx = gameObject.getData("slotIndex");
+        const nextCard = this.drawQueue.shift();
+        this.drawQueue.push(gameObject.getData("name"));
+        gameObject.destroy();
         this.selectedCard = null;
+        this.createCardUI(nextCard, sIdx);
       } else {
-        this.selectedCard = container;
-        container.y = pos.y - 20;
-        container.setDepth(100);
+        gameObject.x = gameObject.getData("homeX");
+        gameObject.y = gameObject.getData("homeY");
+        gameObject.setDepth(10);
+        this.selectedCard = null;
       }
     });
   }
@@ -382,6 +718,25 @@ class GameScene extends Phaser.Scene {
   }
 
   spawnTroop(x, y, name, isEnemy) {
+    const stats = CARD_DATA[name];
+    if (stats.isSwarm) {
+      for (let i = 0; i < stats.swarmCount; i++) {
+        let angle = (i / stats.swarmCount) * Math.PI * 2;
+        let offsetX = Math.cos(angle) * stats.spawnRadius;
+        let offsetY = Math.sin(angle) * stats.spawnRadius;
+        this._spawnSingleUnit(
+          x + offsetX,
+          y + offsetY,
+          stats.spawnTroop,
+          isEnemy,
+        );
+      }
+    } else {
+      this._spawnSingleUnit(x, y, name, isEnemy);
+    }
+  }
+
+  _spawnSingleUnit(x, y, name, isEnemy) {
     const stats = CARD_DATA[name];
     const container = this.add.container(x, y);
     const body = this.add.rectangle(0, 0, stats.size, stats.size, stats.color);
@@ -421,6 +776,26 @@ class GameScene extends Phaser.Scene {
     this.elixirBar.width = (this.currentElixir / 10) * 400;
     this.elixirText.setText(`Elixir: ${Math.floor(this.currentElixir)}/10`);
     const RIVER_Y = 400;
+
+    if (window.isDev) {
+      this.debugGraphics.clear();
+      this.troops.getChildren().forEach((t) => {
+        this.debugGraphics.lineStyle(1, 0xff0000, 0.6);
+        this.debugGraphics.strokeCircle(
+          t.x,
+          t.y,
+          t.stats.size / 2 + t.stats.range,
+        );
+      });
+      this.towers.getChildren().forEach((t) => {
+        this.debugGraphics.lineStyle(1, 0x0000ff, 0.6);
+        this.debugGraphics.strokeCircle(
+          t.x,
+          t.y,
+          t.stats.size / 2 + t.stats.range,
+        );
+      });
+    }
 
     this.projectiles.getChildren().forEach((p) => {
       if (!p.target || !p.target.active) {
@@ -491,7 +866,6 @@ class GameScene extends Phaser.Scene {
       this.waterBlocks.forEach((wb) => {
         let testX = troop.x;
         let testY = troop.y;
-
         if (troop.x < wb.rx) testX = wb.rx;
         else if (troop.x > wb.rx + wb.rw) testX = wb.rx + wb.rw;
         if (troop.y < wb.ry) testY = wb.ry;
@@ -500,7 +874,6 @@ class GameScene extends Phaser.Scene {
         let dx = troop.x - testX;
         let dy = troop.y - testY;
         let dist = Math.sqrt(dx * dx + dy * dy);
-
         if (dist < tRad && dist > 0) {
           let overlap = tRad - dist;
           troop.x += (dx / dist) * overlap;
@@ -534,9 +907,11 @@ class GameScene extends Phaser.Scene {
         }
       });
 
+      // THE FIX: Perfect targeting prioritization
       let closestEnemy = null;
+      let minEnemyDist = Infinity;
       if (!troop.stats.targetsTowersOnly) {
-        let minEnemyDist = troop.stats.aggro;
+        minEnemyDist = troop.stats.aggro;
         this.troops.getChildren().forEach((enemy) => {
           if (troop.isEnemy !== enemy.isEnemy) {
             const eRad = enemy.stats.size / 2;
@@ -567,7 +942,14 @@ class GameScene extends Phaser.Scene {
         }
       });
 
-      let rawTarget = closestEnemy ? closestEnemy : nearestTower;
+      let rawTarget = nearestTower;
+      if (!troop.stats.targetsTowersOnly && closestEnemy) {
+        // Strictly lock onto whichever is mathematically closer
+        if (minEnemyDist < minTowerDist) {
+          rawTarget = closestEnemy;
+        }
+      }
+
       if (!rawTarget) return;
 
       let moveTarget = null;
@@ -745,6 +1127,12 @@ class ResultScene extends Phaser.Scene {
     this.add
       .text(225, 475, this.msg, { fontSize: "28px", fill: "#ffffff" })
       .setOrigin(0.5);
+
+    this.input.on("pointerdown", () => {
+      socket.disconnect();
+      socket.connect();
+      this.scene.start("HomeScene");
+    });
   }
 }
 
@@ -756,6 +1144,13 @@ const config = {
     width: 450,
     height: 950,
   },
-  scene: [WaitingScene, GameScene, ResultScene],
+  scene: [
+    HomeScene,
+    ModeSelectScene,
+    DeckScene,
+    WaitingScene,
+    GameScene,
+    ResultScene,
+  ],
 };
 const game = new Phaser.Game(config);
