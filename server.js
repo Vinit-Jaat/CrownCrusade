@@ -8,8 +8,9 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
-// DEV FLAG SYSTEM: Run server with "node server.js --dev" to activate debug visuals
-const isDev = process.argv.includes("--dev");
+// DEV FLAG SYSTEM
+const isDevStatic = process.argv.includes("--devstatic");
+const isDev = process.argv.includes("--dev") || isDevStatic;
 
 let waitingPlayer = null;
 const rooms = {};
@@ -18,8 +19,8 @@ const friendRooms = {};
 io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
 
-  // Broadcast the dev environment flag to the client immediately
-  socket.emit("init_data", { isDev });
+  // Broadcast both dev flags to the client immediately
+  socket.emit("init_data", { isDev, isDevStatic });
 
   socket.on("join_random", () => {
     if (
@@ -93,7 +94,6 @@ io.on("connection", (socket) => {
     if (socket.roomId) socket.to(socket.roomId).emit("opponent_played", data);
   });
 
-  // LEAVE MATCH FIX: Handle manual leaving
   socket.on("leave_match", () => {
     if (socket.roomId && rooms[socket.roomId]) {
       socket.to(socket.roomId).emit("opponent_disconnected");
@@ -122,6 +122,10 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server live on port ${PORT}`);
-  if (isDev)
+  if (isDevStatic)
+    console.log(
+      `[DEBUG STATIC MODE ACTIVE] Troops are frozen and attack ranges are visible!`,
+    );
+  else if (isDev)
     console.log(`[DEBUG MODE ACTIVE] Troop attack ranges will be visible!`);
 });
