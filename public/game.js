@@ -8,7 +8,6 @@ socket.on("init_data", (data) => {
 });
 
 const CARD_DATA = {
-  // --- 1. EXISTING CARDS ---
   Knight: {
     cost: 3,
     hp: 400,
@@ -140,7 +139,6 @@ const CARD_DATA = {
     color: 0xaaaaaa,
   },
 
-  // --- 2. NEW SINGLE TROOPS ---
   Prince: {
     cost: 5,
     hp: 800,
@@ -435,7 +433,6 @@ const CARD_DATA = {
     targetsTowersOnly: true,
   },
 
-  // --- 3. SWARM BASE ENTITIES (Used by the spawner logic) ---
   EliteBarbarian: {
     cost: 3,
     hp: 500,
@@ -521,7 +518,6 @@ const CARD_DATA = {
     type: "ranged",
   },
 
-  // --- 4. SWARM CARDS (These spawn multiple troops) ---
   EliteBarbarians: {
     cost: 6,
     isSwarm: true,
@@ -622,7 +618,7 @@ class HomeScene extends Phaser.Scene {
 
     const playBtn = this.add
       .rectangle(225, 550, 240, 70, 0x3296ff, 1)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     this.add
       .text(225, 550, "BATTLE", {
         fontSize: "28px",
@@ -634,7 +630,9 @@ class HomeScene extends Phaser.Scene {
     playBtn.on("pointerdown", () => this.scene.start("ModeSelectScene"));
 
     this.input.on("pointerup", (pointer) => {
-      if (pointer.downX - pointer.upX > 50) this.scene.start("DeckScene");
+      const swipeTime = pointer.upTime - pointer.downTime;
+      const swipeDistX = pointer.upX - pointer.downX;
+      if (swipeTime < 1000 && swipeDistX < -50) this.scene.start("DeckScene");
     });
   }
 }
@@ -655,7 +653,7 @@ class ModeSelectScene extends Phaser.Scene {
 
     const randomBtn = this.add
       .rectangle(225, 350, 280, 60, 0x2e8b57, 1)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     this.add
       .text(225, 350, "Random Match", { fontSize: "20px", fill: "#fff" })
       .setOrigin(0.5);
@@ -665,7 +663,7 @@ class ModeSelectScene extends Phaser.Scene {
 
     const hostBtn = this.add
       .rectangle(225, 450, 280, 60, 0x8b4513, 1)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     this.add
       .text(225, 450, "Host with Code", { fontSize: "20px", fill: "#fff" })
       .setOrigin(0.5);
@@ -675,7 +673,7 @@ class ModeSelectScene extends Phaser.Scene {
 
     const joinBtn = this.add
       .rectangle(225, 550, 280, 60, 0x6464fa, 1)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     this.add
       .text(225, 550, "Join with Code", { fontSize: "20px", fill: "#fff" })
       .setOrigin(0.5);
@@ -686,7 +684,7 @@ class ModeSelectScene extends Phaser.Scene {
     const backBtn = this.add
       .text(225, 700, "[ BACK ]", { fontSize: "20px", fill: "#ff5555" })
       .setOrigin(0.5)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     backBtn.on("pointerdown", () => this.scene.start("HomeScene"));
   }
 }
@@ -697,42 +695,100 @@ class DeckScene extends Phaser.Scene {
   }
   create() {
     this.cameras.main.setBackgroundColor("#111111");
+
+    // UI Elements (High Depth to stay above scrolling)
     this.add
       .text(225, 50, "YOUR DECK", {
         fontSize: "24px",
         fill: "#ffcc00",
         fontStyle: "bold",
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(20);
     this.add
       .text(225, 80, "Swipe Right for Home —>", {
         fontSize: "16px",
         fill: "#888888",
       })
-      .setOrigin(0.5);
-    this.helperText = this.add
+      .setOrigin(0.5)
+      .setDepth(20);
+    this.add
       .text(225, 410, "1. Tap a card above\n2. Tap a card below to swap", {
         fontSize: "14px",
         fill: "#aaaaaa",
         align: "center",
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(20);
+
+    // "Curtain" panel to hide collection cards scrolling under the active deck
+    this.add.rectangle(0, 0, 450, 450, 0x111111).setOrigin(0, 0).setDepth(15);
+    this.add
+      .text(225, 470, "COLLECTION (Scroll Down)", {
+        fontSize: "20px",
+        fill: "#ffffff",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(20);
+    this.add.rectangle(0, 450, 450, 40, 0x111111).setOrigin(0, 0).setDepth(15);
 
     this.selectedSlotIndex = null;
-    this.deckGroup = this.add.group();
-    this.collectionGroup = this.add.group();
+
+    // Containers
+    this.deckContainer = this.add.container(0, 0).setDepth(20);
+    this.collectionContainer = this.add.container(0, 0).setDepth(5);
 
     this.refreshUI();
 
+    // VERTICAL SCROLLING LOGIC
+    let isScrolling = false;
+    let startY = 0;
+    let startContainerY = 0;
+
+    this.input.on("pointerdown", (pointer) => {
+      if (pointer.y > 450) {
+        // Only scroll if interacting with collection area
+        isScrolling = true;
+        startY = pointer.y;
+        startContainerY = this.collectionContainer.y;
+      }
+    });
+
+    this.input.on("pointermove", (pointer) => {
+      if (isScrolling) {
+        let dy = pointer.y - startY;
+        this.collectionContainer.y = startContainerY + dy;
+
+        // Clamp bounds based on total 50 cards
+        const totalRows = Math.ceil(Object.keys(CARD_DATA).length / 4);
+        const maxScroll = -(totalRows * 110 - 400);
+
+        if (this.collectionContainer.y > 0) this.collectionContainer.y = 0;
+        if (this.collectionContainer.y < maxScroll)
+          this.collectionContainer.y = maxScroll;
+      }
+    });
+
     this.input.on("pointerup", (pointer) => {
-      if (pointer.upX - pointer.downX > 50) this.scene.start("HomeScene");
+      isScrolling = false;
+
+      const swipeTime = pointer.upTime - pointer.downTime;
+      const swipeDistX = pointer.upX - pointer.downX;
+      const swipeDistY = Math.abs(pointer.upY - pointer.downY);
+
+      // Swipe Right to go Home (ensures it wasn't a vertical scroll)
+      if (swipeTime < 1000 && swipeDistX > 50 && swipeDistY < 50) {
+        this.scene.start("HomeScene");
+      }
     });
   }
 
   refreshUI() {
-    this.deckGroup.clear(true, true);
-    this.collectionGroup.clear(true, true);
+    this.deckContainer.removeAll(true);
+    this.collectionContainer.removeAll(true);
 
+    // Render Active Deck (Top)
     for (let i = 0; i < 8; i++) {
       const cardName = window.playerDeck[i];
       const x = 60 + (i % 4) * 110;
@@ -762,18 +818,22 @@ class DeckScene extends Phaser.Scene {
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
       });
 
-      container.on("pointerdown", () => {
-        this.selectedSlotIndex = i;
-        this.refreshUI();
+      container.on("pointerup", (pointer) => {
+        if (pointer.getDistance() < 10) {
+          // Distance check prevents tap registering during scroll
+          this.selectedSlotIndex = i;
+          this.refreshUI();
+        }
       });
-      this.deckGroup.add(container);
+      this.deckContainer.add(container);
     }
 
+    // Render 50 Collection Cards (Bottom, Scrollable)
     const allCards = Object.keys(CARD_DATA);
     for (let i = 0; i < allCards.length; i++) {
       const cardName = allCards[i];
       const x = 60 + (i % 4) * 110;
-      const y = 500 + Math.floor(i / 4) * 110;
+      const y = 530 + Math.floor(i / 4) * 110; // Start lower down
 
       const inDeck = window.playerDeck.includes(cardName);
       const container = this.add.container(x, y);
@@ -798,15 +858,18 @@ class DeckScene extends Phaser.Scene {
           hitArea: new Phaser.Geom.Rectangle(-40, -45, 80, 90),
           hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         });
-        container.on("pointerdown", () => {
-          if (this.selectedSlotIndex !== null) {
-            window.playerDeck[this.selectedSlotIndex] = cardName;
-            this.selectedSlotIndex = null;
-            this.refreshUI();
+        container.on("pointerup", (pointer) => {
+          if (pointer.getDistance() < 10) {
+            // Safety check
+            if (this.selectedSlotIndex !== null) {
+              window.playerDeck[this.selectedSlotIndex] = cardName;
+              this.selectedSlotIndex = null;
+              this.refreshUI();
+            }
           }
         });
       }
-      this.collectionGroup.add(container);
+      this.collectionContainer.add(container);
     }
   }
 }
@@ -831,7 +894,7 @@ class WaitingScene extends Phaser.Scene {
     const cancelBtn = this.add
       .text(225, 700, "[ CANCEL ]", { fontSize: "20px", fill: "#ff5555" })
       .setOrigin(0.5)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     cancelBtn.on("pointerdown", () => {
       socket.disconnect();
       socket.connect();
@@ -915,7 +978,8 @@ class GameScene extends Phaser.Scene {
     this.spawnTower(87.5, 187.5, false, true, 3 * tw, 3 * th);
     this.spawnTower(362.5, 187.5, false, true, 3 * tw, 3 * th);
 
-    const HUD_Y = 800;
+    // FIXED OVERLAP: HUD lowered to 825 to create a strict 25px physical gap below the 800px map
+    const HUD_Y = 825;
     this.add
       .rectangle(0, HUD_Y, 450, 150, 0x111111)
       .setOrigin(0, 0)
@@ -976,7 +1040,7 @@ class GameScene extends Phaser.Scene {
     const leaveBtn = this.add
       .rectangle(400, 20, 70, 30, 0xff0000, 0.7)
       .setDepth(9)
-      .setInteractive();
+      .setInteractive({ useHandCursor: true });
     this.add
       .text(400, 20, "LEAVE", {
         fontSize: "14px",
@@ -993,7 +1057,7 @@ class GameScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer, gameObjects) => {
       if (gameObjects.length > 0) return;
 
-      if (pointer.y < HUD_Y && this.selectedCard && !this.isDragging) {
+      if (pointer.y < 800 && this.selectedCard && !this.isDragging) {
         const dropX = pointer.x;
         const dropY = pointer.y;
         const cost = this.selectedCard.getData("cost");
@@ -1157,7 +1221,7 @@ class GameScene extends Phaser.Scene {
     container.hpBar = hpFg;
 
     container.stats = {
-      range: isKing ? 140 : 150,
+      range: isKing ? 140 : 120,
       dmg: isKing ? 50 : 75,
       atkSpd: 0.9,
       size: Math.max(w, h),
@@ -1277,7 +1341,6 @@ class GameScene extends Phaser.Scene {
     this.towers.getChildren().forEach((tower) => {
       tower.hpBar.scaleX = Math.max(0, tower.hp / tower.maxHp);
 
-      // STATIC DEBUG FIX: Freeze Tower AI if devstatic flag is active
       if (window.isDevStatic) return;
 
       if (tower.isKing && tower.hp < tower.maxHp) tower.isActive = true;
@@ -1361,8 +1424,6 @@ class GameScene extends Phaser.Scene {
         }
       });
 
-      // STATIC DEBUG FIX: Completely abort AI routing, moving, and attacking.
-      // Physical collisions (above) still run so spawned troops push apart.
       if (window.isDevStatic) return;
 
       let closestEnemy = null;
@@ -1598,7 +1659,7 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 450,
-    height: 950,
+    height: 975,
   },
   scene: [
     HomeScene,
